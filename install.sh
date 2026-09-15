@@ -39,8 +39,21 @@ if ! grep -Fqx "$INSTALL_LINE" "$RC_LOCAL"; then
   printf '%s\n' "$INSTALL_LINE" >> "$RC_LOCAL"
 fi
 
-if command -v svc >/dev/null 2>&1; then
-  svc -u "$SERVICE_LINK" || true
+if command -v svc >/dev/null 2>&1 && command -v svstat >/dev/null 2>&1; then
+  service_found=0
+  for attempt in 1 2 3 4 5; do
+    if svstat "$SERVICE_LINK" >/dev/null 2>&1; then
+      service_found=1
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$service_found" -eq 1 ]; then
+    svc -u "$SERVICE_LINK"
+  else
+    echo "Warning: runit has not discovered $SERVICE_LINK yet; it should start automatically."
+  fi
 fi
 
 echo "Installed $SERVICE_NAME"
