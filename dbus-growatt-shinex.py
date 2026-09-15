@@ -21,8 +21,9 @@ from vedbus import VeDbusService  # noqa: E402
 from growatt_shinex import parse_measurement
 
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini")
+ERROR_LOG_INTERVAL = 60.0
 
 
 def load_settings(path):
@@ -50,22 +51,32 @@ def load_settings(path):
     request_timeout = defaults.getfloat("RequestTimeout", fallback=3.0)
     offline_after = defaults.getfloat("OfflineAfter", fallback=10.0)
     sign_of_life = defaults.getint("SignOfLifeLog", fallback=5)
+    device_instance = defaults.getint("DeviceInstance")
+    position = defaults.getint("Position", fallback=0)
+    log_level = defaults.get("LogLevel", "INFO").strip().upper()
+
+    if not 0 <= device_instance <= 255:
+        raise ValueError("DeviceInstance must be between 0 and 255")
+    if position not in (0, 1, 2):
+        raise ValueError("Position must be 0, 1 or 2")
     if poll_interval < 0.5:
         raise ValueError("PollInterval must be at least 0.5 seconds")
     if request_timeout < 0.5:
         raise ValueError("RequestTimeout must be at least 0.5 seconds")
     if offline_after < request_timeout:
         raise ValueError("OfflineAfter must be greater than or equal to RequestTimeout")
+    if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        raise ValueError("LogLevel must be DEBUG, INFO, WARNING, ERROR or CRITICAL")
 
     return {
-        "device_instance": defaults.getint("DeviceInstance"),
+        "device_instance": device_instance,
         "custom_name": defaults.get("CustomName", "Growatt ShineX").strip(),
-        "position": defaults.getint("Position", fallback=0),
+        "position": position,
         "poll_interval": poll_interval,
         "request_timeout": request_timeout,
         "offline_after": offline_after,
         "sign_of_life": max(sign_of_life, 0),
-        "log_level": defaults.get("LogLevel", "INFO").strip().upper(),
+        "log_level": log_level,
         "status_url": "{}/status".format(base_url.rstrip("/")),
         "username": on_premise.get("Username", "").strip(),
         "password": on_premise.get("Password", ""),
@@ -110,7 +121,8 @@ class DbusGrowattShineXService:
         self._updates = queue.Queue(maxsize=1)
         self._stop_event = threading.Event()
         self._last_success = None
-        self._last_error = None
+        self._last_logged_error = None
+        self._last_error_log_time = None
         self._connected = False
 
         instance = settings["device_instance"]
@@ -161,12 +173,14 @@ class DbusGrowattShineXService:
         service.add_path("/StatusCode", 0)
         service.add_path("/ErrorCode", 0)
 
-        service.add_path("/Ac/Energy/Forward", 0.0, gettextcallback=self._format_kwh)
-        service.add_path("/Ac/Power", 0.0, gettextcallback=self._format_watts)
-        service.add_path("/Ac/L1/Current", 0.0, gettextcallback=self._format_amps)
-        service.add_path("/Ac/L1/Power", 0.0, gettextcallback=self._format_watts)
-        service.add_path("/Ac/L1/Voltage", 0.0, gettextcallback=self._format_volts)
-        service.add_path("/Ac/L1/Energy/Forward", 0.0, gettextcallback=self._format_kwh)
+        # Keep measurements invalid until the first valid response. In particular,
+        # a cumulative energy counter must never briefly look like it reset to zero.
+        service.add_path("/Ac/Energy/Forward", None, gettextcallback=self._format_kwh)
+        service.add_path("/Ac/Power", None, gettextcallback=self._format_watts)
+        service.add_path("/Ac/L1/Current", None, gettextcallback=self._format_amps)
+        service.add_path("/Ac/L1/Power", None, gettextcallback=self._format_watts)
+        service.add_path("/Ac/L1/Voltage", None, gettextcallback=self._format_volts)
+        service.add_path("/Ac/L1/Energy/Forward", None, gettextcallback=self._format_kwh)
 
     @staticmethod
     def _format_value(value, decimals, unit):
@@ -210,6 +224,9 @@ class DbusGrowattShineXService:
                 self._queue_latest(("success", measurement, latency))
             except (requests.RequestException, ValueError) as error:
                 self._queue_latest(("error", str(error), None))
+            except Exception as error:  # Keep the worker alive on malformed edge cases.
+                message = "{}: {}".format(type(error).__name__, error)
+                self._queue_latest(("error", message, None))
 
             elapsed = time.monotonic() - started
             wait_time = max(0.0, self._settings["poll_interval"] - elapsed)
@@ -241,7 +258,6 @@ class DbusGrowattShineXService:
         was_connected = self._connected
 
         self._last_success = time.monotonic()
-        self._last_error = None
         self._connected = True
 
         service["/Connected"] = 1
@@ -264,14 +280,22 @@ class DbusGrowattShineXService:
             logging.info("ShineX communication online")
 
     def _handle_error(self, message):
-        if message != self._last_error:
+        now = time.monotonic()
+        if (
+            message != self._last_logged_error
+            or self._last_error_log_time is None
+            or now - self._last_error_log_time >= ERROR_LOG_INTERVAL
+        ):
             logging.warning("ShineX request failed: %s", message)
-            self._last_error = message
+            self._last_logged_error = message
+            self._last_error_log_time = now
 
     def _set_offline(self):
+        if not self._connected:
+            return
+
         service = self._dbusservice
-        if self._connected:
-            logging.warning("ShineX data is stale; marking inverter disconnected")
+        logging.warning("ShineX data is stale; marking inverter disconnected")
         self._connected = False
         service["/Connected"] = 0
         service["/StatusCode"] = 0

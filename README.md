@@ -22,6 +22,8 @@ ShineX dongle therefore does not block the other inverter services.
 - Does not automatically restart the ShineX dongle.
 - Loads and validates configuration once at startup.
 - Publishes measurement paths as read-only values.
+- Rate-limits repeated transient HTTP errors without hiding an offline state.
+- Stops both the main service and logger during uninstall.
 
 ## Requirements
 
@@ -95,6 +97,23 @@ Restart the service after changing `config.ini`:
 ```
 
 Logs are stored in `/var/log/growatt-solar-1/current`.
+
+## Safe upgrade or migration
+
+Do not replace a `/service/<name>` symlink while its old runit supervisor is
+still active. Stop both the main service and its logger first. When migrating
+from another installation, run that installation's uninstaller or use:
+
+```sh
+svc -d /service/growatt-solar-1/log
+svc -d /service/growatt-solar-1
+sleep 2
+```
+
+The installer refuses to overwrite a service link that points to another
+directory. This prevents orphaned Python and `multilog` processes. The included
+`restart.sh` performs a checked down/up cycle so D-Bus and GUI v2 see a clean
+device re-registration.
 
 ## Three separate Growatt inverters
 

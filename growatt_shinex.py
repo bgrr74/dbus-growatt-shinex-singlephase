@@ -29,8 +29,11 @@ def _optional_number(value: Any) -> Optional[float]:
 
 def _integer(value: Any, default: int = 0) -> int:
     try:
-        return int(float(value))
-    except (TypeError, ValueError):
+        number = float(value)
+        if not math.isfinite(number):
+            return default
+        return int(number)
+    except (TypeError, ValueError, OverflowError):
         return default
 
 

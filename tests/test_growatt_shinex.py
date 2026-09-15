@@ -88,6 +88,19 @@ class ParseMeasurementTests(unittest.TestCase):
         self.assertIsNone(result.energy)
         self.assertEqual(result.error_code, 0)
 
+    def test_infinite_integer_values_are_safe(self):
+        result = parse_measurement(
+            {
+                "InverterStatus": float("inf"),
+                "OutputPower": 100,
+                "ErrorCode": float("inf"),
+            }
+        )
+
+        self.assertFalse(result.inverter_running)
+        self.assertEqual(result.power, 0)
+        self.assertEqual(result.error_code, 0)
+
     def test_non_object_response_is_rejected(self):
         with self.assertRaises(ValueError):
             parse_measurement([])

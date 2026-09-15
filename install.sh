@@ -11,6 +11,13 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+case "$SERVICE_NAME" in
+  ''|*[!A-Za-z0-9._-]*)
+    echo "Directory name '$SERVICE_NAME' is not a safe runit service name."
+    exit 1
+    ;;
+esac
+
 if [ ! -f "$SCRIPT_DIR/config.ini" ]; then
   cp "$SCRIPT_DIR/config.example.ini" "$SCRIPT_DIR/config.ini"
   echo "Created $SCRIPT_DIR/config.ini"
@@ -27,6 +34,19 @@ chmod 0755 \
   "$SCRIPT_DIR/service/log/run"
 
 mkdir -p /service "/var/log/$SERVICE_NAME"
+
+if [ -e "$SERVICE_LINK" ] || [ -L "$SERVICE_LINK" ]; then
+  CURRENT_TARGET="$(readlink -f "$SERVICE_LINK" 2>/dev/null || true)"
+  EXPECTED_TARGET="$(readlink -f "$SCRIPT_DIR/service")"
+  if [ "$CURRENT_TARGET" != "$EXPECTED_TARGET" ]; then
+    echo "Refusing to replace active service link $SERVICE_LINK."
+    echo "Current target: ${CURRENT_TARGET:-unknown}"
+    echo "Expected target: $EXPECTED_TARGET"
+    echo "Uninstall or stop the old installation before migrating."
+    exit 1
+  fi
+fi
+
 ln -sfn "$SCRIPT_DIR/service" "$SERVICE_LINK"
 
 if [ ! -f "$RC_LOCAL" ]; then
