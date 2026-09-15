@@ -85,8 +85,9 @@ def parse_measurement(payload: Mapping[str, Any]) -> Measurement:
     if not running:
         power = 0.0
         current = 0.0
-    elif power > 0 and current <= 0 and voltage > 0:
-        # Some inverter/register combinations round small currents down to zero.
+    elif power > 0 and current <= 0.5 and voltage > 0:
+        # Growatt reports AC current with coarse resolution at low output. Below
+        # 0.5 A this can even make P > V * I, so derive a plausible current.
         current = power / voltage
 
     energy = _optional_number(payload.get("TotalGenerateEnergy"))

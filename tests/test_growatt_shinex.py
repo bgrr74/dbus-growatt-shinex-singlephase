@@ -56,6 +56,20 @@ class ParseMeasurementTests(unittest.TestCase):
         self.assertAlmostEqual(result.current, 0.5)
         self.assertIsNone(result.energy)
 
+    def test_low_resolution_current_is_recalculated(self):
+        result = parse_measurement(
+            {
+                "InverterStatus": 1,
+                "OutputPower": 103.2,
+                "L1ThreePhaseGridVoltage": 241.4,
+                "L1ThreePhaseGridOutputCurrent": 0.3,
+                "TotalGenerateEnergy": 7725.0,
+            }
+        )
+
+        self.assertEqual(result.power, 103.2)
+        self.assertAlmostEqual(result.current, 103.2 / 241.4)
+
     def test_invalid_values_are_safe(self):
         result = parse_measurement(
             {
