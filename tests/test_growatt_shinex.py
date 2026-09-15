@@ -82,6 +82,51 @@ class ParseMeasurementTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_measurement({"message": "not ready"})
 
+    def test_three_real_single_phase_payload_shapes(self):
+        samples = (
+            (
+                {
+                    "InverterStatus": 1,
+                    "OutputPower": 1727.5,
+                    "L1ThreePhaseGridVoltage": 242.6,
+                    "L1ThreePhaseGridOutputCurrent": 7.2,
+                    "L1ThreePhaseGridOutputPower": 1727.8,
+                    "TotalGenerateEnergy": 14391.6,
+                },
+                (1727.5, 242.6, 7.2, 14391.6),
+            ),
+            (
+                {
+                    "InverterStatus": 1,
+                    "OutputPower": 227.1,
+                    "L1ThreePhaseGridVoltage": 239.7,
+                    "L1ThreePhaseGridOutputCurrent": 0.9,
+                    "L1ThreePhaseGridOutputPower": 224.4,
+                    "TotalGenerateEnergy": 7724.9,
+                },
+                (227.1, 239.7, 0.9, 7724.9),
+            ),
+            (
+                {
+                    "InverterStatus": 1,
+                    "OutputPower": 2775.4,
+                    "L1ThreePhaseGridVoltage": 243.9,
+                    "L1ThreePhaseGridOutputCurrent": 11.2,
+                    "L1ThreePhaseGridOutputPower": 2777.4,
+                    "TotalGenerateEnergy": 8553.7,
+                },
+                (2775.4, 243.9, 11.2, 8553.7),
+            ),
+        )
+
+        for payload, expected in samples:
+            with self.subTest(output_power=payload["OutputPower"]):
+                result = parse_measurement(payload)
+                self.assertEqual(
+                    (result.power, result.voltage, result.current, result.energy),
+                    expected,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
