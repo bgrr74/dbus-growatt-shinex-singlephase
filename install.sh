@@ -50,6 +50,9 @@ if command -v svc >/dev/null 2>&1 && command -v svstat >/dev/null 2>&1; then
   done
 
   if [ "$service_found" -eq 1 ]; then
+    if [ -d "$SERVICE_LINK/log" ]; then
+      svc -u "$SERVICE_LINK/log"
+    fi
     svc -u "$SERVICE_LINK"
   else
     echo "Warning: runit has not discovered $SERVICE_LINK yet; it should start automatically."

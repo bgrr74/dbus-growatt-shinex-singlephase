@@ -21,7 +21,7 @@ from vedbus import VeDbusService  # noqa: E402
 from growatt_shinex import parse_measurement
 
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini")
 
 
@@ -79,13 +79,18 @@ class ShineXClient:
         self._auth = None
         if settings["username"]:
             self._auth = (settings["username"], settings["password"])
-        self._session = requests.Session()
-        self._session.headers.update({"Accept": "application/json"})
+        self._headers = {
+            "Accept": "application/json",
+            "Connection": "close",
+        }
 
     def get_status(self):
-        response = self._session.get(
+        # OpenInverterGateway/ShineX firmware can close keep-alive sockets
+        # without warning. Use a fresh connection for every polling cycle.
+        response = requests.get(
             self._url,
             auth=self._auth,
+            headers=self._headers,
             timeout=self._timeout,
         )
         response.raise_for_status()
@@ -99,10 +104,6 @@ class ShineXClient:
             raise ValueError("ShineX returned JSON that is not an object")
         return payload
 
-    def close(self):
-        self._session.close()
-
-
 class DbusGrowattShineXService:
     def __init__(self, settings):
         self._settings = settings
@@ -114,8 +115,9 @@ class DbusGrowattShineXService:
 
         instance = settings["device_instance"]
         service_name = "com.victronenergy.pvinverter.http_{:02d}".format(instance)
-        self._dbusservice = VeDbusService(service_name)
+        self._dbusservice = VeDbusService(service_name, register=False)
         self._add_paths()
+        self._dbusservice.register()
 
         self._worker = threading.Thread(
             target=self._poll_worker,
@@ -199,22 +201,19 @@ class DbusGrowattShineXService:
 
     def _poll_worker(self):
         client = ShineXClient(self._settings)
-        try:
-            while not self._stop_event.is_set():
-                started = time.monotonic()
-                try:
-                    payload = client.get_status()
-                    measurement = parse_measurement(payload)
-                    latency = time.monotonic() - started
-                    self._queue_latest(("success", measurement, latency))
-                except (requests.RequestException, ValueError) as error:
-                    self._queue_latest(("error", str(error), None))
+        while not self._stop_event.is_set():
+            started = time.monotonic()
+            try:
+                payload = client.get_status()
+                measurement = parse_measurement(payload)
+                latency = time.monotonic() - started
+                self._queue_latest(("success", measurement, latency))
+            except (requests.RequestException, ValueError) as error:
+                self._queue_latest(("error", str(error), None))
 
-                elapsed = time.monotonic() - started
-                wait_time = max(0.0, self._settings["poll_interval"] - elapsed)
-                self._stop_event.wait(wait_time)
-        finally:
-            client.close()
+            elapsed = time.monotonic() - started
+            wait_time = max(0.0, self._settings["poll_interval"] - elapsed)
+            self._stop_event.wait(wait_time)
 
     def _update(self):
         latest = None

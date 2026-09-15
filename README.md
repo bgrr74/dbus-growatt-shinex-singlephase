@@ -15,7 +15,8 @@ ShineX dongle therefore does not block the other inverter services.
   inverter remains connected at night.
 - Performs HTTP polling in a background thread, so request timeouts never block
   the GLib/D-Bus event loop.
-- Uses one persistent HTTP session and one request per polling cycle.
+- Uses one short-lived HTTP connection per polling cycle because ShineX
+  firmware does not reliably support connection reuse.
 - Marks stale data offline and resets live power, current and voltage to zero.
 - Retains the last cumulative energy value during a communication outage.
 - Does not automatically restart the ShineX dongle.
