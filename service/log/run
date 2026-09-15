@@ -1,0 +1,6 @@
+#!/bin/sh
+exec 2>&1
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+SERVICE_NAME="$(basename "$SCRIPT_DIR")"
+exec multilog t s153600 n3 "/var/log/$SERVICE_NAME"

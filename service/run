@@ -1,0 +1,5 @@
+#!/bin/sh
+exec 2>&1
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+exec python3 "$SCRIPT_DIR/dbus-growatt-shinex.py"
