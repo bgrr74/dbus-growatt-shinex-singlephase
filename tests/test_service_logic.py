@@ -78,6 +78,7 @@ class ServiceLogicTests(unittest.TestCase):
 [DEFAULT]
 DeviceInstance = 42
 CustomName = solar2
+Model = MIC 1500TL-X
 Position = 0
 PollInterval = 2
 RequestTimeout = 3
@@ -86,7 +87,7 @@ SignOfLifeLog = 5
 LogLevel = INFO
 
 [ONPREMISE]
-Host = 192.168.12.192
+Host = 192.0.2.42
 """
 
     def test_valid_settings_are_typed(self):
@@ -97,7 +98,28 @@ Host = 192.168.12.192
 
         self.assertEqual(settings["device_instance"], 42)
         self.assertEqual(settings["position"], 0)
-        self.assertEqual(settings["status_url"], "http://192.168.12.192/status")
+        self.assertEqual(settings["product_name"], "Growatt MIC 1500TL-X")
+        self.assertEqual(settings["status_url"], "http://192.0.2.42/status")
+
+    def test_model_accepts_optional_growatt_prefix_and_has_fallback(self):
+        cases = (
+            ("MIN 2500TL-XE", "Growatt MIN 2500TL-XE"),
+            ("Growatt MIN 5000TL-X", "Growatt MIN 5000TL-X"),
+            ("  Growatt   MIC 1500TL-X  ", "Growatt MIC 1500TL-X"),
+            ("", "Growatt ShineX single-phase"),
+        )
+        for configured, expected in cases:
+            with self.subTest(configured=configured):
+                self.assertEqual(SERVICE.product_name_from_model(configured), expected)
+
+    def test_missing_model_uses_generic_product_name(self):
+        content = self.valid_config().replace("Model = MIC 1500TL-X\n", "")
+        directory, path = self.write_config(content)
+        self.addCleanup(directory.cleanup)
+
+        settings = SERVICE.load_settings(path)
+
+        self.assertEqual(settings["product_name"], "Growatt ShineX single-phase")
 
     def test_invalid_device_instance_position_and_log_level_are_rejected(self):
         cases = (
@@ -122,6 +144,7 @@ Host = 192.168.12.192
         service._settings = {
             "device_instance": 42,
             "custom_name": "solar2",
+            "product_name": "Growatt MIC 1500TL-X",
             "position": 0,
         }
         service._dbusservice = PathService()
@@ -129,6 +152,9 @@ Host = 192.168.12.192
         service._add_paths()
 
         self.assertEqual(service._dbusservice.paths["/Connected"], 0)
+        self.assertEqual(
+            service._dbusservice.paths["/ProductName"], "Growatt MIC 1500TL-X"
+        )
         self.assertIsNone(service._dbusservice.paths["/Ac/Power"])
         self.assertIsNone(service._dbusservice.paths["/Ac/Energy/Forward"])
 

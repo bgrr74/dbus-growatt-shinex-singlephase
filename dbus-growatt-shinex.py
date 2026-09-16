@@ -21,9 +21,22 @@ from vedbus import VeDbusService  # noqa: E402
 from growatt_shinex import parse_measurement
 
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini")
 ERROR_LOG_INTERVAL = 60.0
+
+
+def product_name_from_model(model):
+    """Build a consistent Victron product name from an optional model value."""
+    model = " ".join(model.split())
+    if not model:
+        return "Growatt ShineX single-phase"
+
+    if model.casefold() == "growatt":
+        return "Growatt"
+    if model.casefold().startswith("growatt "):
+        return "Growatt {}".format(model[8:].strip())
+    return "Growatt {}".format(model)
 
 
 def load_settings(path):
@@ -71,6 +84,7 @@ def load_settings(path):
     return {
         "device_instance": device_instance,
         "custom_name": defaults.get("CustomName", "Growatt ShineX").strip(),
+        "product_name": product_name_from_model(defaults.get("Model", "")),
         "position": position,
         "poll_interval": poll_interval,
         "request_timeout": request_timeout,
@@ -160,7 +174,7 @@ class DbusGrowattShineXService:
         service.add_path("/Mgmt/Connection", "Growatt ShineX local HTTP JSON")
         service.add_path("/DeviceInstance", settings["device_instance"])
         service.add_path("/ProductId", 0xFFFF)
-        service.add_path("/ProductName", "Growatt ShineX single-phase")
+        service.add_path("/ProductName", settings["product_name"])
         service.add_path("/CustomName", settings["custom_name"])
         service.add_path("/Latency", None, gettextcallback=self._format_seconds)
         service.add_path("/FirmwareVersion", VERSION)

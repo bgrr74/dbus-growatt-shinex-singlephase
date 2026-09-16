@@ -65,6 +65,7 @@ Victron system.
 AccessType = OnPremise
 DeviceInstance = 41
 CustomName = Growatt Solar 1
+Model = MIN 2500TL-XE
 Position = 0
 PollInterval = 2
 RequestTimeout = 3
@@ -73,7 +74,7 @@ SignOfLifeLog = 5
 LogLevel = INFO
 
 [ONPREMISE]
-Host = 192.168.1.100
+Host = 192.0.2.10
 Username =
 Password =
 ```
@@ -82,6 +83,7 @@ Password =
 |---|---|
 | `DeviceInstance` | Unique Victron D-Bus device instance. Each inverter needs its own number. |
 | `CustomName` | Name displayed on the GX device and VRM. |
+| `Model` | Optional inverter model shown as the GX product name. Both `MIN 2500TL-XE` and `Growatt MIN 2500TL-XE` are accepted. |
 | `Position` | Victron PV position; normally `0` for AC input. |
 | `PollInterval` | Seconds between request starts; minimum `0.5`. |
 | `RequestTimeout` | HTTP timeout in seconds. |
@@ -95,6 +97,9 @@ Restart the service after changing `config.ini`:
 ```sh
 /data/growatt-solar-1/restart.sh
 ```
+
+If `Model` is empty or absent, the product name remains
+`Growatt ShineX single-phase` for backwards compatibility.
 
 Logs are stored in `/var/log/growatt-solar-1/current`.
 
