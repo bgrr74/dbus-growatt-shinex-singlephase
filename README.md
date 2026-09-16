@@ -10,7 +10,7 @@ ShineX dongle therefore does not block the other inverter services.
 
 ## Highlights
 
-- Publishes only the global AC and L1 D-Bus paths.
+- Publishes only the global AC paths and one configured phase: L1, L2 or L3.
 - Keeps communication state separate from inverter running state: a reachable
   inverter remains connected at night.
 - Performs HTTP polling in a background thread, so request timeouts never block
@@ -66,6 +66,7 @@ AccessType = OnPremise
 DeviceInstance = 41
 CustomName = Growatt Solar 1
 Model = MIN 2500TL-XE
+Phase = L1
 Position = 0
 PollInterval = 2
 RequestTimeout = 3
@@ -84,6 +85,7 @@ Password =
 | `DeviceInstance` | Unique Victron D-Bus device instance. Each inverter needs its own number. |
 | `CustomName` | Name displayed on the GX device and VRM. |
 | `Model` | Optional inverter model shown as the GX product name. Both `MIN 2500TL-XE` and `Growatt MIN 2500TL-XE` are accepted. |
+| `Phase` | Physical grid phase used by this single-phase inverter: `L1`, `L2` or `L3`. Defaults to `L1`. |
 | `Position` | Victron PV position; normally `0` for AC input. |
 | `PollInterval` | Seconds between request starts; minimum `0.5`. |
 | `RequestTimeout` | HTTP timeout in seconds. |
@@ -100,6 +102,11 @@ Restart the service after changing `config.ini`:
 
 If `Model` is empty or absent, the product name remains
 `Growatt ShineX single-phase` for backwards compatibility.
+
+`Phase` selects the Victron D-Bus phase on which the inverter is published.
+The ShineX JSON fields still start with `L1ThreePhaseGrid`; those names describe
+the inverter's own single AC output and are also used when the house connection
+places that output on L2 or L3.
 
 Logs are stored in `/var/log/growatt-solar-1/current`.
 
@@ -138,13 +145,15 @@ service and log directory.
 
 - `/Ac/Power`
 - `/Ac/Energy/Forward`
-- `/Ac/L1/Voltage`
-- `/Ac/L1/Current`
-- `/Ac/L1/Power`
-- `/Ac/L1/Energy/Forward`
+- `/Ac/<Phase>/Voltage`
+- `/Ac/<Phase>/Current`
+- `/Ac/<Phase>/Power`
+- `/Ac/<Phase>/Energy/Forward`
 - `/Connected`, `/StatusCode`, `/ErrorCode`, `/Latency` and management paths
 
-No L2 or L3 paths are created.
+Only the configured phase is created. This does not add support for a
+three-phase inverter; it maps one single-phase inverter to its physical house
+phase.
 
 ## Uninstall
 

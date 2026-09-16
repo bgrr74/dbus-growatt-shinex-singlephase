@@ -21,7 +21,7 @@ from vedbus import VeDbusService  # noqa: E402
 from growatt_shinex import parse_measurement
 
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config.ini")
 ERROR_LOG_INTERVAL = 60.0
 
@@ -66,12 +66,15 @@ def load_settings(path):
     sign_of_life = defaults.getint("SignOfLifeLog", fallback=5)
     device_instance = defaults.getint("DeviceInstance")
     position = defaults.getint("Position", fallback=0)
+    phase = defaults.get("Phase", "L1").strip().upper()
     log_level = defaults.get("LogLevel", "INFO").strip().upper()
 
     if not 0 <= device_instance <= 255:
         raise ValueError("DeviceInstance must be between 0 and 255")
     if position not in (0, 1, 2):
         raise ValueError("Position must be 0, 1 or 2")
+    if phase not in {"L1", "L2", "L3"}:
+        raise ValueError("Phase must be L1, L2 or L3")
     if poll_interval < 0.5:
         raise ValueError("PollInterval must be at least 0.5 seconds")
     if request_timeout < 0.5:
@@ -86,6 +89,7 @@ def load_settings(path):
         "custom_name": defaults.get("CustomName", "Growatt ShineX").strip(),
         "product_name": product_name_from_model(defaults.get("Model", "")),
         "position": position,
+        "phase": phase,
         "poll_interval": poll_interval,
         "request_timeout": request_timeout,
         "offline_after": offline_after,
@@ -157,10 +161,14 @@ class DbusGrowattShineXService:
             GLib.timeout_add(settings["sign_of_life"] * 60 * 1000, self._sign_of_life)
 
         logging.info(
-            "Started %s as device instance %d",
+            "Started %s as device instance %d on %s",
             settings["custom_name"],
             instance,
+            settings["phase"],
         )
+
+    def _phase_path(self, item):
+        return "/Ac/{}/{}".format(self._settings["phase"], item)
 
     def _add_paths(self):
         service = self._dbusservice
@@ -191,10 +199,20 @@ class DbusGrowattShineXService:
         # a cumulative energy counter must never briefly look like it reset to zero.
         service.add_path("/Ac/Energy/Forward", None, gettextcallback=self._format_kwh)
         service.add_path("/Ac/Power", None, gettextcallback=self._format_watts)
-        service.add_path("/Ac/L1/Current", None, gettextcallback=self._format_amps)
-        service.add_path("/Ac/L1/Power", None, gettextcallback=self._format_watts)
-        service.add_path("/Ac/L1/Voltage", None, gettextcallback=self._format_volts)
-        service.add_path("/Ac/L1/Energy/Forward", None, gettextcallback=self._format_kwh)
+        service.add_path(
+            self._phase_path("Current"), None, gettextcallback=self._format_amps
+        )
+        service.add_path(
+            self._phase_path("Power"), None, gettextcallback=self._format_watts
+        )
+        service.add_path(
+            self._phase_path("Voltage"), None, gettextcallback=self._format_volts
+        )
+        service.add_path(
+            self._phase_path("Energy/Forward"),
+            None,
+            gettextcallback=self._format_kwh,
+        )
 
     @staticmethod
     def _format_value(value, decimals, unit):
@@ -279,13 +297,13 @@ class DbusGrowattShineXService:
         service["/StatusCode"] = 7 if measurement.inverter_running else 0
         service["/ErrorCode"] = measurement.error_code
         service["/Ac/Power"] = measurement.power
-        service["/Ac/L1/Power"] = measurement.power
-        service["/Ac/L1/Current"] = measurement.current
-        service["/Ac/L1/Voltage"] = measurement.voltage
+        service[self._phase_path("Power")] = measurement.power
+        service[self._phase_path("Current")] = measurement.current
+        service[self._phase_path("Voltage")] = measurement.voltage
 
         if measurement.energy is not None:
             service["/Ac/Energy/Forward"] = measurement.energy
-            service["/Ac/L1/Energy/Forward"] = measurement.energy
+            service[self._phase_path("Energy/Forward")] = measurement.energy
         if measurement.serial:
             service["/Serial"] = measurement.serial
 
@@ -315,9 +333,9 @@ class DbusGrowattShineXService:
         service["/StatusCode"] = 0
         service["/Latency"] = None
         service["/Ac/Power"] = 0.0
-        service["/Ac/L1/Power"] = 0.0
-        service["/Ac/L1/Current"] = 0.0
-        service["/Ac/L1/Voltage"] = 0.0
+        service[self._phase_path("Power")] = 0.0
+        service[self._phase_path("Current")] = 0.0
+        service[self._phase_path("Voltage")] = 0.0
         # Deliberately retain the cumulative energy counter while offline.
 
     def _sign_of_life(self):

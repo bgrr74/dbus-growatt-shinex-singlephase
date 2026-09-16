@@ -48,8 +48,8 @@ SERVICE = load_service_module()
 
 
 class CountingService(dict):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.write_count = 0
 
     def __setitem__(self, key, value):
@@ -79,6 +79,7 @@ class ServiceLogicTests(unittest.TestCase):
 DeviceInstance = 42
 CustomName = solar2
 Model = MIC 1500TL-X
+Phase = L2
 Position = 0
 PollInterval = 2
 RequestTimeout = 3
@@ -98,6 +99,7 @@ Host = 192.0.2.42
 
         self.assertEqual(settings["device_instance"], 42)
         self.assertEqual(settings["position"], 0)
+        self.assertEqual(settings["phase"], "L2")
         self.assertEqual(settings["product_name"], "Growatt MIC 1500TL-X")
         self.assertEqual(settings["status_url"], "http://192.0.2.42/status")
 
@@ -121,10 +123,29 @@ Host = 192.0.2.42
 
         self.assertEqual(settings["product_name"], "Growatt ShineX single-phase")
 
+    def test_missing_phase_defaults_to_l1(self):
+        content = self.valid_config().replace("Phase = L2\n", "")
+        directory, path = self.write_config(content)
+        self.addCleanup(directory.cleanup)
+
+        settings = SERVICE.load_settings(path)
+
+        self.assertEqual(settings["phase"], "L1")
+
+    def test_phase_is_case_insensitive(self):
+        content = self.valid_config().replace("Phase = L2", "Phase = l3")
+        directory, path = self.write_config(content)
+        self.addCleanup(directory.cleanup)
+
+        settings = SERVICE.load_settings(path)
+
+        self.assertEqual(settings["phase"], "L3")
+
     def test_invalid_device_instance_position_and_log_level_are_rejected(self):
         cases = (
             ("DeviceInstance = 42", "DeviceInstance = 256"),
             ("Position = 0", "Position = 3"),
+            ("Phase = L2", "Phase = L4"),
             ("LogLevel = INFO", "LogLevel = VERBOSE"),
         )
         for original, replacement in cases:
@@ -146,6 +167,7 @@ Host = 192.0.2.42
             "custom_name": "solar2",
             "product_name": "Growatt MIC 1500TL-X",
             "position": 0,
+            "phase": "L2",
         }
         service._dbusservice = PathService()
 
@@ -157,12 +179,45 @@ Host = 192.0.2.42
         )
         self.assertIsNone(service._dbusservice.paths["/Ac/Power"])
         self.assertIsNone(service._dbusservice.paths["/Ac/Energy/Forward"])
+        self.assertIsNone(service._dbusservice.paths["/Ac/L2/Power"])
+        self.assertNotIn("/Ac/L1/Power", service._dbusservice.paths)
+        self.assertNotIn("/Ac/L3/Power", service._dbusservice.paths)
+
+    def test_measurement_is_published_only_on_configured_phase(self):
+        service = SERVICE.DbusGrowattShineXService.__new__(
+            SERVICE.DbusGrowattShineXService
+        )
+        service._settings = {"phase": "L3"}
+        service._dbusservice = CountingService({"/UpdateIndex": 0})
+        service._last_success = None
+        service._connected = False
+        measurement = types.SimpleNamespace(
+            inverter_running=True,
+            error_code=0,
+            power=1234.5,
+            current=5.2,
+            voltage=237.4,
+            energy=4567.8,
+            serial="AABBCCDDEEFF",
+        )
+
+        with mock.patch.object(SERVICE.logging, "info"):
+            service._apply_measurement(measurement, 0.123)
+
+        self.assertEqual(service._dbusservice["/Ac/Power"], 1234.5)
+        self.assertEqual(service._dbusservice["/Ac/L3/Power"], 1234.5)
+        self.assertEqual(service._dbusservice["/Ac/L3/Current"], 5.2)
+        self.assertEqual(service._dbusservice["/Ac/L3/Voltage"], 237.4)
+        self.assertEqual(service._dbusservice["/Ac/L3/Energy/Forward"], 4567.8)
+        self.assertNotIn("/Ac/L1/Power", service._dbusservice)
+        self.assertNotIn("/Ac/L2/Power", service._dbusservice)
 
     def test_offline_transition_writes_only_once(self):
         service = SERVICE.DbusGrowattShineXService.__new__(
             SERVICE.DbusGrowattShineXService
         )
         service._dbusservice = CountingService()
+        service._settings = {"phase": "L2"}
         service._connected = False
 
         service._set_offline()
@@ -177,6 +232,8 @@ Host = 192.0.2.42
         self.assertGreater(writes_after_transition, 0)
         self.assertEqual(service._dbusservice.write_count, writes_after_transition)
         self.assertEqual(service._dbusservice["/Connected"], 0)
+        self.assertEqual(service._dbusservice["/Ac/L2/Power"], 0.0)
+        self.assertNotIn("/Ac/L1/Power", service._dbusservice)
 
     def test_repeated_identical_errors_are_rate_limited(self):
         service = SERVICE.DbusGrowattShineXService.__new__(
